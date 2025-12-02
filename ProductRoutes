@@ -1,0 +1,112 @@
+/**
+ * DropHub Product Routes
+ * RESTful API endpoints for product operations
+ */
+
+const express = require('express');
+const router = express.Router();
+const productController = require('../controllers/productController');
+const { validateProduct } = require('../middleware/validator');
+const cache = require('../middleware/cache');
+
+/**
+ * @route   GET /api/v1/products
+ * @desc    Get all products with pagination and filters
+ * @access  Private (requires API key)
+ * @query   {number} page - Page number (default: 1)
+ * @query   {number} limit - Items per page (default: 20, max: 100)
+ * @query   {string} category - Filter by category ID
+ * @query   {string} search - Search in title and description
+ * @query   {string} sort - Sort field (price, name, date)
+ * @query   {string} order - Sort order (asc, desc)
+ * @query   {number} minPrice - Minimum price filter
+ * @query   {number} maxPrice - Maximum price filter
+ * @query   {string} color - Filter by color
+ * @query   {boolean} hasVideo - Filter products with video
+ */
+router.get('/', cache(300), productController.getAllProducts);
+
+/**
+ * @route   GET /api/v1/products/:id
+ * @desc    Get single product by ID
+ * @access  Private
+ * @param   {string} id - Product ID or SKU
+ */
+router.get('/:id', cache(600), productController.getProductById);
+
+/**
+ * @route   GET /api/v1/products/:id/related
+ * @desc    Get related products
+ * @access  Private
+ * @param   {string} id - Product ID
+ * @query   {number} limit - Number of related products (default: 5)
+ */
+router.get('/:id/related', cache(300), productController.getRelatedProducts);
+
+/**
+ * @route   GET /api/v1/products/:id/variants
+ * @desc    Get product variants (colors, sizes, etc.)
+ * @access  Private
+ * @param   {string} id - Product ID
+ */
+router.get('/:id/variants', cache(600), productController.getProductVariants);
+
+/**
+ * @route   POST /api/v1/products
+ * @desc    Create new product (admin only)
+ * @access  Private (admin)
+ * @body    {object} product - Product data
+ */
+router.post('/', validateProduct, productController.createProduct);
+
+/**
+ * @route   PUT /api/v1/products/:id
+ * @desc    Update product (admin only)
+ * @access  Private (admin)
+ * @param   {string} id - Product ID
+ * @body    {object} product - Updated product data
+ */
+router.put('/:id', validateProduct, productController.updateProduct);
+
+/**
+ * @route   DELETE /api/v1/products/:id
+ * @desc    Delete product (admin only)
+ * @access  Private (admin)
+ * @param   {string} id - Product ID
+ */
+router.delete('/:id', productController.deleteProduct);
+
+/**
+ * @route   POST /api/v1/products/bulk
+ * @desc    Bulk create/update products (admin only)
+ * @access  Private (admin)
+ * @body    {array} products - Array of product objects
+ */
+router.post('/bulk', productController.bulkCreateProducts);
+
+/**
+ * @route   GET /api/v1/products/search/suggestions
+ * @desc    Get search suggestions for autocomplete
+ * @access  Private
+ * @query   {string} q - Search query
+ * @query   {number} limit - Number of suggestions (default: 10)
+ */
+router.get('/search/suggestions', cache(600), productController.getSearchSuggestions);
+
+/**
+ * @route   GET /api/v1/products/trending/top
+ * @desc    Get trending/popular products
+ * @access  Private
+ * @query   {number} limit - Number of products (default: 20)
+ * @query   {string} period - Time period (day, week, month)
+ */
+router.get('/trending/top', cache(1800), productController.getTrendingProducts);
+
+/**
+ * @route   GET /api/v1/products/stats/overview
+ * @desc    Get product statistics
+ * @access  Private (admin)
+ */
+router.get('/stats/overview', cache(3600), productController.getProductStats);
+
+module.exports = router;
