@@ -1,0 +1,435 @@
+<?php
+/**
+ * Plugin Name: DropHub - Open Source Dropshipping Platform
+ * Plugin URI: https://github.com/YOUR_ORG/drophub
+ * Description: Import 30,000+ curated products with images, videos, and specs directly into your WooCommerce store. 100% free and open source.
+ * Version: 0.1.0
+ * Requires at least: 6.0
+ * Requires PHP: 8.0
+ * Author: DropHub Community
+ * Author URI: https://drophub.org
+ * License: MIT
+ * License URI: https://opensource.org/licenses/MIT
+ * Text Domain: drophub
+ * Domain Path: /languages
+ * WC requires at least: 7.0
+ * WC tested up to: 8.5
+ */
+
+// If this file is called directly, abort.
+if (!defined('WPINC')) {
+    die;
+}
+
+/**
+ * Current plugin version.
+ */
+define('DROPHUB_VERSION', '0.1.0');
+define('DROPHUB_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('DROPHUB_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('DROPHUB_API_BASE', 'https://api.drophub.org/v1'); // Change to your API URL
+
+/**
+ * Check if WooCommerce is active
+ */
+function drophub_check_woocommerce() {
+    if (!class_exists('WooCommerce')) {
+        add_action('admin_notices', 'drophub_woocommerce_missing_notice');
+        deactivate_plugins(plugin_basename(__FILE__));
+        return false;
+    }
+    return true;
+}
+
+/**
+ * WooCommerce missing notice
+ */
+function drophub_woocommerce_missing_notice() {
+    ?>
+    <div class="error">
+        <p><?php esc_html_e('DropHub requires WooCommerce to be installed and active.', 'drophub'); ?></p>
+    </div>
+    <?php
+}
+
+/**
+ * Activation hook
+ */
+function drophub_activate() {
+    // Check WooCommerce
+    if (!drophub_check_woocommerce()) {
+        return;
+    }
+    
+    // Create database tables
+    global $wpdb;
+    $charset_collate = $wpdb->get_charset_collate();
+    $table_name = $wpdb->prefix . 'drophub_imports';
+    
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        product_id bigint(20) NOT NULL,
+        drophub_sku varchar(100) NOT NULL,
+        import_date datetime DEFAULT CURRENT_TIMESTAMP,
+        status varchar(20) DEFAULT 'active',
+        PRIMARY KEY  (id),
+        KEY product_id (product_id),
+        KEY drophub_sku (drophub_sku)
+    ) $charset_collate;";
+    
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+    
+    // Set default options
+    add_option('drophub_api_key', '');
+    add_option('drophub_profit_margin', 20);
+    add_option('drophub_auto_sync', 'no');
+    add_option('drophub_import_images', 'yes');
+    add_option('drophub_import_videos', 'yes');
+    
+    // Flush rewrite rules
+    flush_rewrite_rules();
+}
+register_activation_hook(__FILE__, 'drophub_activate');
+
+/**
+ * Deactivation hook
+ */
+function drophub_deactivate() {
+    flush_rewrite_rules();
+}
+register_deactivation_hook(__FILE__, 'drophub_deactivate');
+
+/**
+ * Load plugin textdomain
+ */
+function drophub_load_textdomain() {
+    load_plugin_textdomain('drophub', false, dirname(plugin_basename(__FILE__)) . '/languages');
+}
+add_action('plugins_loaded', 'drophub_load_textdomain');
+
+/**
+ * Include required files
+ */
+require_once DROPHUB_PLUGIN_DIR . 'includes/class-drophub.php';
+require_once DROPHUB_PLUGIN_DIR . 'includes/class-api-client.php';
+require_once DROPHUB_PLUGIN_DIR . 'includes/class-product-importer.php';
+require_once DROPHUB_PLUGIN_DIR . 'includes/class-admin-settings.php';
+
+/**
+ * Initialize the plugin
+ */
+function drophub_init() {
+    if (!drophub_check_woocommerce()) {
+        return;
+    }
+    
+    $plugin = new DropHub();
+    $plugin->run();
+}
+add_action('plugins_loaded', 'drophub_init');
+
+/**
+ * Add admin menu
+ */
+function drophub_add_admin_menu() {
+    add_menu_page(
+        __('DropHub', 'drophub'),
+        __('DropHub', 'drophub'),
+        'manage_woocommerce',
+        'drophub',
+        'drophub_admin_page',
+        'dashicons-cart',
+        56
+    );
+    
+    add_submenu_page(
+        'drophub',
+        __('Browse Products', 'drophub'),
+        __('Browse Products', 'drophub'),
+        'manage_woocommerce',
+        'drophub',
+        'drophub_admin_page'
+    );
+    
+    add_submenu_page(
+        'drophub',
+        __('Imported Products', 'drophub'),
+        __('Imported Products', 'drophub'),
+        'manage_woocommerce',
+        'drophub-imported',
+        'drophub_imported_page'
+    );
+    
+    add_submenu_page(
+        'drophub',
+        __('Settings', 'drophub'),
+        __('Settings', 'drophub'),
+        'manage_options',
+        'drophub-settings',
+        'drophub_settings_page'
+    );
+}
+add_action('admin_menu', 'drophub_add_admin_menu');
+
+/**
+ * Admin page callback
+ */
+function drophub_admin_page() {
+    ?>
+    <div class="wrap" id="drophub-app">
+        <h1><?php esc_html_e('DropHub Product Catalog', 'drophub'); ?></h1>
+        
+        <?php if (empty(get_option('drophub_api_key'))): ?>
+            <div class="notice notice-warning">
+                <p>
+                    <?php esc_html_e('Please configure your API key in', 'drophub'); ?>
+                    <a href="<?php echo admin_url('admin.php?page=drophub-settings'); ?>">
+                        <?php esc_html_e('Settings', 'drophub'); ?>
+                    </a>
+                </p>
+            </div>
+        <?php endif; ?>
+        
+        <div class="drophub-catalog">
+            <div class="drophub-filters">
+                <input type="text" id="drophub-search" placeholder="<?php esc_attr_e('Search products...', 'drophub'); ?>">
+                <select id="drophub-category">
+                    <option value=""><?php esc_html_e('All Categories', 'drophub'); ?></option>
+                </select>
+                <button class="button" id="drophub-filter-btn"><?php esc_html_e('Filter', 'drophub'); ?></button>
+            </div>
+            
+            <div id="drophub-products-grid" class="drophub-grid">
+                <p><?php esc_html_e('Loading products...', 'drophub'); ?></p>
+            </div>
+            
+            <div id="drophub-pagination"></div>
+        </div>
+    </div>
+    <?php
+}
+
+/**
+ * Imported products page
+ */
+function drophub_imported_page() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'drophub_imports';
+    
+    $imported = $wpdb->get_results(
+        "SELECT i.*, p.post_title 
+         FROM $table_name i 
+         LEFT JOIN {$wpdb->posts} p ON i.product_id = p.ID 
+         WHERE p.post_status = 'publish' 
+         ORDER BY i.import_date DESC 
+         LIMIT 50"
+    );
+    
+    ?>
+    <div class="wrap">
+        <h1><?php esc_html_e('Imported Products', 'drophub'); ?></h1>
+        
+        <?php if (empty($imported)): ?>
+            <p><?php esc_html_e('No products imported yet. Start by browsing the catalog!', 'drophub'); ?></p>
+        <?php else: ?>
+            <table class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e('Product Name', 'drophub'); ?></th>
+                        <th><?php esc_html_e('DropHub SKU', 'drophub'); ?></th>
+                        <th><?php esc_html_e('Import Date', 'drophub'); ?></th>
+                        <th><?php esc_html_e('Status', 'drophub'); ?></th>
+                        <th><?php esc_html_e('Actions', 'drophub'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($imported as $item): ?>
+                        <tr>
+                            <td>
+                                <a href="<?php echo get_edit_post_link($item->product_id); ?>">
+                                    <?php echo esc_html($item->post_title); ?>
+                                </a>
+                            </td>
+                            <td><?php echo esc_html($item->drophub_sku); ?></td>
+                            <td><?php echo esc_html($item->import_date); ?></td>
+                            <td>
+                                <span class="status-<?php echo esc_attr($item->status); ?>">
+                                    <?php echo esc_html(ucfirst($item->status)); ?>
+                                </span>
+                            </td>
+                            <td>
+                                <a href="<?php echo get_permalink($item->product_id); ?>" target="_blank">
+                                    <?php esc_html_e('View', 'drophub'); ?>
+                                </a> |
+                                <a href="<?php echo get_edit_post_link($item->product_id); ?>">
+                                    <?php esc_html_e('Edit', 'drophub'); ?>
+                                </a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+/**
+ * Settings page
+ */
+function drophub_settings_page() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    // Save settings
+    if (isset($_POST['drophub_settings_nonce']) && 
+        wp_verify_nonce($_POST['drophub_settings_nonce'], 'drophub_settings')) {
+        
+        update_option('drophub_api_key', sanitize_text_field($_POST['drophub_api_key']));
+        update_option('drophub_profit_margin', intval($_POST['drophub_profit_margin']));
+        update_option('drophub_auto_sync', sanitize_text_field($_POST['drophub_auto_sync']));
+        update_option('drophub_import_images', sanitize_text_field($_POST['drophub_import_images']));
+        update_option('drophub_import_videos', sanitize_text_field($_POST['drophub_import_videos']));
+        
+        echo '<div class="notice notice-success"><p>' . esc_html__('Settings saved!', 'drophub') . '</p></div>';
+    }
+    
+    $api_key = get_option('drophub_api_key', '');
+    $profit_margin = get_option('drophub_profit_margin', 20);
+    $auto_sync = get_option('drophub_auto_sync', 'no');
+    $import_images = get_option('drophub_import_images', 'yes');
+    $import_videos = get_option('drophub_import_videos', 'yes');
+    
+    ?>
+    <div class="wrap">
+        <h1><?php esc_html_e('DropHub Settings', 'drophub'); ?></h1>
+        
+        <form method="post" action="">
+            <?php wp_nonce_field('drophub_settings', 'drophub_settings_nonce'); ?>
+            
+            <table class="form-table">
+                <tr>
+                    <th scope="row">
+                        <label for="drophub_api_key"><?php esc_html_e('API Key', 'drophub'); ?></label>
+                    </th>
+                    <td>
+                        <input type="text" id="drophub_api_key" name="drophub_api_key" 
+                               value="<?php echo esc_attr($api_key); ?>" class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Get your free API key at', 'drophub'); ?>
+                            <a href="https://drophub.org/register" target="_blank">drophub.org/register</a>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="drophub_profit_margin"><?php esc_html_e('Profit Margin (%)', 'drophub'); ?></label>
+                    </th>
+                    <td>
+                        <input type="number" id="drophub_profit_margin" name="drophub_profit_margin" 
+                               value="<?php echo esc_attr($profit_margin); ?>" min="0" max="500">
+                        <p class="description">
+                            <?php esc_html_e('Automatically add this percentage to supplier prices', 'drophub'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="drophub_auto_sync"><?php esc_html_e('Auto Sync', 'drophub'); ?></label>
+                    </th>
+                    <td>
+                        <select id="drophub_auto_sync" name="drophub_auto_sync">
+                            <option value="no" <?php selected($auto_sync, 'no'); ?>><?php esc_html_e('No', 'drophub'); ?></option>
+                            <option value="daily" <?php selected($auto_sync, 'daily'); ?>><?php esc_html_e('Daily', 'drophub'); ?></option>
+                            <option value="weekly" <?php selected($auto_sync, 'weekly'); ?>><?php esc_html_e('Weekly', 'drophub'); ?></option>
+                        </select>
+                        <p class="description">
+                            <?php esc_html_e('Automatically sync prices and stock from DropHub', 'drophub'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <?php esc_html_e('Import Options', 'drophub'); ?>
+                    </th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="drophub_import_images" value="yes" 
+                                   <?php checked($import_images, 'yes'); ?>>
+                            <?php esc_html_e('Import product images', 'drophub'); ?>
+                        </label><br>
+                        
+                        <label>
+                            <input type="checkbox" name="drophub_import_videos" value="yes" 
+                                   <?php checked($import_videos, 'yes'); ?>>
+                            <?php esc_html_e('Import product videos', 'drophub'); ?>
+                        </label>
+                    </td>
+                </tr>
+            </table>
+            
+            <?php submit_button(); ?>
+        </form>
+    </div>
+    <?php
+}
+
+/**
+ * Enqueue admin scripts
+ */
+function drophub_admin_scripts($hook) {
+    if (strpos($hook, 'drophub') === false) {
+        return;
+    }
+    
+    wp_enqueue_style('drophub-admin', DROPHUB_PLUGIN_URL . 'admin/css/admin.css', [], DROPHUB_VERSION);
+    wp_enqueue_script('drophub-admin', DROPHUB_PLUGIN_URL . 'admin/js/admin.js', ['jquery'], DROPHUB_VERSION, true);
+    
+    wp_localize_script('drophub-admin', 'drophubAdmin', [
+        'ajaxUrl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('drophub_ajax'),
+        'apiBase' => DROPHUB_API_BASE,
+        'apiKey' => get_option('drophub_api_key'),
+        'strings' => [
+            'importing' => __('Importing...', 'drophub'),
+            'success' => __('Product imported successfully!', 'drophub'),
+            'error' => __('Import failed. Please try again.', 'drophub'),
+        ]
+    ]);
+}
+add_action('admin_enqueue_scripts', 'drophub_admin_scripts');
+
+/**
+ * AJAX handler for product import
+ */
+function drophub_ajax_import_product() {
+    check_ajax_referer('drophub_ajax', 'nonce');
+    
+    if (!current_user_can('manage_woocommerce')) {
+        wp_send_json_error(['message' => __('Permission denied', 'drophub')]);
+    }
+    
+    $drophub_id = isset($_POST['product_id']) ? sanitize_text_field($_POST['product_id']) : '';
+    
+    if (empty($drophub_id)) {
+        wp_send_json_error(['message' => __('Invalid product ID', 'drophub')]);
+    }
+    
+    $importer = new DropHub_Product_Importer();
+    $result = $importer->import_product($drophub_id);
+    
+    if (is_wp_error($result)) {
+        wp_send_json_error(['message' => $result->get_error_message()]);
+    }
+    
+    wp_send_json_success([
+        'message' => __('Product imported successfully!', 'drophub'),
+        'product_id' => $result
+    ]);
+}
+add_action('wp_ajax_drophub_import_product', 'drophub_ajax_import_product');
