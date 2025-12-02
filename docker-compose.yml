@@ -1,0 +1,60 @@
+﻿version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: drophub-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: drophub
+      MYSQL_USER: drophub_user
+      MYSQL_PASSWORD: drophub_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/migrations:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7-alpine
+    container_name: drophub-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: ./api-service
+    container_name: drophub-api
+    environment:
+      NODE_ENV: development
+      DB_HOST: mysql
+      REDIS_HOST: redis
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./api-service:/app
+    depends_on:
+      - mysql
+      - redis
+
+  wordpress:
+    image: wordpress:latest
+    container_name: drophub-wordpress
+    environment:
+      WORDPRESS_DB_HOST: mysql
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: drophub_user
+      WORDPRESS_DB_PASSWORD: drophub_pass
+    ports:
+      - "8080:80"
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./wordpress-plugin:/var/www/html/wp-content/plugins/drophub
+    depends_on:
+      - mysql
+
+volumes:
+  mysql_data:
+  redis_data:
+  wordpress_data:

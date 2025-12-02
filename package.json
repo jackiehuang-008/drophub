@@ -1,0 +1,22 @@
+﻿{
+  "name": "drophub",
+  "version": "0.1.0",
+  "description": "Open Source Dropshipping Platform - BSA GROUP",
+  "author": "BSA GROUP (China Best Sourcing Agent)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jackiehuang-008/drophub.git"
+  },
+  "scripts": {
+    "install:all": "cd api-service && npm install && cd ../admin-dashboard && npm install",
+    "dev": "concurrently \"cd api-service && npm run dev\" \"cd admin-dashboard && npm start\"",
+    "test": "cd api-service && npm test",
+    "build": "cd admin-dashboard && npm run build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
