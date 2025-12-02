@@ -1,0 +1,219 @@
+# ========================================
+# DropHub Environment Configuration
+# ========================================
+# Copy this file to .env and fill in your values
+# NEVER commit .env to version control!
+
+# ========================================
+# APPLICATION
+# ========================================
+NODE_ENV=development
+APP_NAME=DropHub
+APP_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:3001
+
+# API Configuration
+API_VERSION=v1
+API_PORT=3000
+API_RATE_LIMIT=100
+
+# ========================================
+# DATABASE
+# ========================================
+# MySQL Configuration
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=drophub
+DB_USER=drophub_user
+DB_PASSWORD=drophub_pass
+DB_ROOT_PASSWORD=rootpassword
+
+# Connection pool settings
+DB_CONNECTION_LIMIT=10
+DB_QUEUE_LIMIT=0
+
+# ========================================
+# REDIS CACHE
+# ========================================
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# Cache TTL (in seconds)
+CACHE_TTL_SHORT=300      # 5 minutes
+CACHE_TTL_MEDIUM=1800    # 30 minutes
+CACHE_TTL_LONG=3600      # 1 hour
+
+# ========================================
+# AUTHENTICATION
+# ========================================
+# JWT Secret (generate strong random string)
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+JWT_EXPIRES_IN=7d
+
+# API Key Salt (for hashing API keys)
+API_KEY_SALT=your-api-key-salt-change-this
+
+# ========================================
+# AWS S3 / CLOUD STORAGE
+# ========================================
+# AWS Credentials
+AWS_ACCESS_KEY_ID=your-aws-access-key
+AWS_SECRET_ACCESS_KEY=your-aws-secret-key
+AWS_REGION=us-east-1
+
+# S3 Bucket Configuration
+S3_BUCKET=drophub-media
+S3_ENDPOINT=  # Optional: for S3-compatible services
+S3_PUBLIC_URL=https://drophub-media.s3.amazonaws.com
+
+# Alternative: Cloudflare R2
+# R2_ACCOUNT_ID=your-account-id
+# R2_ACCESS_KEY_ID=your-access-key
+# R2_SECRET_ACCESS_KEY=your-secret-key
+# R2_BUCKET=drophub-media
+# R2_PUBLIC_URL=https://pub-xxxxx.r2.dev
+
+# ========================================
+# EMAIL
+# ========================================
+# SMTP Configuration (for production)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+
+# Email addresses
+EMAIL_FROM=noreply@drophub.org
+EMAIL_ADMIN=admin@drophub.org
+
+# For development: Use Mailhog
+# SMTP_HOST=mailhog
+# SMTP_PORT=1025
+
+# ========================================
+# WORDPRESS INTEGRATION
+# ========================================
+# WordPress Database (separate from main DB)
+WP_DB_NAME=wordpress
+WP_DB_USER=drophub_user
+WP_DB_PASSWORD=drophub_pass
+WP_DB_HOST=localhost
+
+# WordPress API (for headless setup)
+WP_API_URL=http://localhost:8080/wp-json
+
+# ========================================
+# EXTERNAL APIS
+# ========================================
+# Shipping API (optional)
+SHIPPO_API_KEY=
+
+# Payment Gateway (optional)
+STRIPE_PUBLIC_KEY=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+# Analytics (optional)
+GOOGLE_ANALYTICS_ID=
+MIXPANEL_TOKEN=
+
+# ========================================
+# FILE UPLOAD
+# ========================================
+# Max file sizes (in MB)
+MAX_FILE_SIZE=10
+MAX_IMAGE_SIZE=5
+MAX_VIDEO_SIZE=50
+
+# Allowed file types
+ALLOWED_IMAGE_TYPES=jpg,jpeg,png,webp,gif
+ALLOWED_VIDEO_TYPES=mp4,webm,mov
+
+# ========================================
+# LOGGING
+# ========================================
+# Log level: error, warn, info, debug
+LOG_LEVEL=info
+
+# Log file paths
+LOG_DIR=./logs
+LOG_ERROR_FILE=error.log
+LOG_COMBINED_FILE=combined.log
+
+# ========================================
+# SECURITY
+# ========================================
+# CORS Configuration
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:8080
+
+# Rate limiting
+RATE_LIMIT_WINDOW_MS=900000  # 15 minutes
+RATE_LIMIT_MAX_REQUESTS=100
+
+# Session
+SESSION_SECRET=your-session-secret-change-this
+
+# ========================================
+# FEATURES
+# ========================================
+# Feature flags (true/false)
+FEATURE_VIDEO_IMPORT=true
+FEATURE_AUTO_TRANSLATION=true
+FEATURE_AI_DESCRIPTIONS=false
+FEATURE_ANALYTICS=true
+
+# ========================================
+# MONITORING
+# ========================================
+# Sentry (Error tracking)
+SENTRY_DSN=
+
+# New Relic (Performance monitoring)
+NEW_RELIC_LICENSE_KEY=
+NEW_RELIC_APP_NAME=DropHub
+
+# ========================================
+# DEVELOPMENT
+# ========================================
+# Debug mode
+DEBUG=true
+VERBOSE_LOGGING=false
+
+# Test database (for running tests)
+TEST_DB_NAME=drophub_test
+
+# Seed data
+SEED_PRODUCTS_COUNT=100
+
+# ========================================
+# PRODUCTION OVERRIDES
+# ========================================
+# When deploying to production, override these:
+# NODE_ENV=production
+# DEBUG=false
+# LOG_LEVEL=warn
+# API_RATE_LIMIT=50
+# JWT_EXPIRES_IN=1d
+
+# ========================================
+# NOTES
+# ========================================
+# 1. Generate strong secrets:
+#    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+#
+# 2. For AWS S3, create IAM user with these permissions:
+#    - s3:PutObject
+#    - s3:GetObject
+#    - s3:DeleteObject
+#    - s3:ListBucket
+#
+# 3. For Gmail SMTP, use App Password:
+#    https://support.google.com/accounts/answer/185833
+#
+# 4. Keep this file secure and never commit it to Git!
+#
+# 5. For production, use environment-specific .env files:
+#    .env.production, .env.staging, etc.
