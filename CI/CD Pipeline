@@ -1,0 +1,370 @@
+name: DropHub CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+  PHP_VERSION: '8.2'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ==========================================
+  # API Service Tests
+  # ==========================================
+  api-tests:
+    name: API Tests (Node.js)
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: drophub_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: api-service/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./api-service
+        run: npm ci
+      
+      - name: Run linter
+        working-directory: ./api-service
+        run: npm run lint
+      
+      - name: Run tests
+        working-directory: ./api-service
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: drophub_test
+          DB_USER: root
+          DB_PASSWORD: test_password
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          JWT_SECRET: test_jwt_secret
+        run: npm test -- --coverage
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ./api-service/coverage
+          flags: api
+          name: api-coverage
+
+  # ==========================================
+  # WordPress Plugin Tests
+  # ==========================================
+  wordpress-plugin-tests:
+    name: WordPress Plugin Tests (PHP)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mysql, zip
+          tools: composer, phpunit
+      
+      - name: Install dependencies
+        working-directory: ./wordpress-plugin
+        run: composer install --prefer-dist --no-progress
+      
+      - name: PHP Code Sniffer
+        working-directory: ./wordpress-plugin
+        run: composer run-script phpcs
+      
+      - name: PHPUnit Tests
+        working-directory: ./wordpress-plugin
+        run: composer run-script test
+
+  # ==========================================
+  # Admin Dashboard Tests
+  # ==========================================
+  admin-dashboard-tests:
+    name: Admin Dashboard Tests (React)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: admin-dashboard/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./admin-dashboard
+        run: npm ci
+      
+      - name: Run linter
+        working-directory: ./admin-dashboard
+        run: npm run lint
+      
+      - name: Run tests
+        working-directory: ./admin-dashboard
+        run: npm test -- --coverage --watchAll=false
+      
+      - name: Build production
+        working-directory: ./admin-dashboard
+        run: npm run build
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: admin-dashboard-build
+          path: admin-dashboard/build/
+
+  # ==========================================
+  # Data Sync Tool Tests
+  # ==========================================
+  data-sync-tests:
+    name: Data Sync Tests (Python)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        working-directory: ./data-sync-tool
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov flake8
+      
+      - name: Lint with flake8
+        working-directory: ./data-sync-tool
+        run: flake8 . --max-line-length=120 --exclude=venv
+      
+      - name: Run tests
+        working-directory: ./data-sync-tool
+        run: pytest --cov=. --cov-report=xml
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ./data-sync-tool
+          flags: data-sync
+          name: data-sync-coverage
+
+  # ==========================================
+  # Security Scanning
+  # ==========================================
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: npm audit (API)
+        working-directory: ./api-service
+        run: npm audit --audit-level=high
+        continue-on-error: true
+      
+      - name: npm audit (Admin Dashboard)
+        working-directory: ./admin-dashboard
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  # ==========================================
+  # Docker Build Test
+  # ==========================================
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build API Service Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api-service
+          push: false
+          tags: drophub-api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Build Admin Dashboard Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-dashboard
+          push: false
+          tags: drophub-admin:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================
+  # Integration Tests
+  # ==========================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [api-tests, wordpress-plugin-tests]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Start services with Docker Compose
+        run: docker-compose up -d
+      
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for API..."
+          timeout 60 bash -c 'until curl -f http://localhost:3000/health; do sleep 2; done'
+          echo "Waiting for WordPress..."
+          timeout 60 bash -c 'until curl -f http://localhost:8080; do sleep 2; done'
+      
+      - name: Run integration tests
+        run: |
+          npm install -g newman
+          newman run tests/postman_collection.json -e tests/postman_environment.json
+      
+      - name: Stop services
+        if: always()
+        run: docker-compose down
+
+  # ==========================================
+  # Deploy to Staging (on main branch)
+  # ==========================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [api-tests, wordpress-plugin-tests, admin-dashboard-tests, integration-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: https://staging.drophub.org
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to staging server
+        env:
+          DEPLOY_KEY: ${{ secrets.STAGING_DEPLOY_KEY }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+        run: |
+          echo "Deploying to staging..."
+          # Add your deployment script here
+          # Example: ssh deployment, Kubernetes apply, etc.
+      
+      - name: Notify deployment
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Staging deployment completed!'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        if: always()
+
+  # ==========================================
+  # Create Release (on tag push)
+  # ==========================================
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [api-tests, wordpress-plugin-tests, admin-dashboard-tests]
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Build WordPress plugin
+        run: |
+          cd wordpress-plugin
+          composer install --no-dev --optimize-autoloader
+          zip -r ../drophub-wordpress-plugin.zip . -x "*.git*" "tests/*" "node_modules/*"
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            drophub-wordpress-plugin.zip
+          body: |
+            ## What's New in ${{ github.ref_name }}
+            
+            Check the [CHANGELOG](CHANGELOG.md) for details.
+            
+            ## Installation
+            1. Download `drophub-wordpress-plugin.zip`
+            2. Upload to WordPress: Plugins → Add New → Upload Plugin
+            3. Activate and configure in DropHub → Settings
+            
+            ## Documentation
+            - [Installation Guide](https://github.com/YOUR_ORG/drophub/blob/main/docs/INSTALLATION.md)
+            - [API Documentation](https://docs.drophub.org)
+            
+            ## Support
+            - [GitHub Issues](https://github.com/YOUR_ORG/drophub/issues)
+            - [Discord Community](https://discord.gg/drophub)
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
